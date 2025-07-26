@@ -19,9 +19,6 @@ class SongsService {
     };
     // console.log('tes add song');
     const result = await this._pool.query(query);
-    // gak nyampe disini
-    // console.log('tes add song');
-    // console.log(result);
     if (!result.rows[0].song_id) {
       throw new InvariantError('song gagal ditambahkan');
     }
@@ -109,6 +106,33 @@ class SongsService {
     if (!result.rows.length) {
       throw new NotFoundError('Gagal memperbarui song, id tidak ada');
     }
+  }
+
+  async verifySongId(id) {
+    const query = {
+      text: 'SELECT song_id FROM songs WHERE song_id = $1',
+      values: [id],
+    };
+
+    const result = await this._pool.query(query);
+
+    if (!result.rows.length) {
+      throw new NotFoundError('lagu tidak ditemukkan');
+    }
+  }
+
+  async getSongsByPlaylistId(playlistId) {
+    const query = {
+      text: `
+      SELECT songs.song_id, songs.title, songs.performer
+      FROM playlist_songs
+      JOIN songs ON songs.song_id = playlist_songs.song_id
+      WHERE playlist_songs.playlist_id = $1`,
+      values: [playlistId],
+    };
+
+    const result = await this._pool.query(query);
+    return result.rows.map(mapDBToModelSong);
   }
 }
 
