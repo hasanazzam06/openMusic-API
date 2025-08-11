@@ -21,7 +21,6 @@ class CollaborationsHandler {
     await this._usersService.verifyUserId(userId);
 
     const collaborationId = await this._collaborationsService.addCollaboration(playlistId, userId);
-    console.log('tes3');
 
     const response = h.response({
       status: 'success',

@@ -8,11 +8,12 @@ const NotFoundError = require('../../exceptions/NotFoundError');
 const AuthorizationError = require('../../exceptions/AuthorizationError');
 
 class PlaylistsService {
-  constructor(songsService, collaborationsService, activitiesService) {
+  constructor(songsService, collaborationsService, activitiesService, cacheService) {
     this._pool = new Pool();
     this._songsService = songsService;
     this._collaborationsService = collaborationsService;
     this._activitiesService = activitiesService;
+    this._cacheService = cacheService;
 
     autoBind(this);
   }
@@ -24,6 +25,7 @@ class PlaylistsService {
     };
 
     const result = await this._pool.query(query);
+    // console.log(playlistId);
 
     if (!result.rows.length) {
       throw new NotFoundError('Playlist tidak ditemukan');
@@ -67,28 +69,39 @@ class PlaylistsService {
       throw new InvariantError('playlist gagal ditambahkan');
     }
 
+    await this._cacheService.delete(`playlist:${id}`);
+
     return result.rows[0].id;
   }
 
   async getPlaylists(owner) {
-    const query = {
-      text: `
+    try {
+      const result = await this._cacheService.get(`playlist:${owner}`);
+      const playlists = JSON.parse(result);
+      return { playlists, isFromCache: true };
+    } catch (error) {
+      const query = {
+        text: `
         SELECT playlists.id, playlists.name, users.username
         FROM playlists
         LEFT JOIN users ON users.id = playlists.owner
         LEFT JOIN collaborations ON collaborations.playlist_id = playlists.id
         WHERE playlists.owner = $1 OR collaborations.user_id = $1
         GROUP BY playlists.id, users.username`,
-      values: [owner],
-    };
+        values: [owner],
+      };
 
-    const result = await this._pool.query(query);
-    return result.rows;
+      const result = await this._pool.query(query);
+      const playlists = result.rows;
+
+      await this._cacheService.set(`playlist:${owner}`, JSON.stringify(playlists));
+      return { playlists, isFromCache: false };
+    }
   }
 
   async deletePlaylistById(id) {
     const query = {
-      text: 'DELETE FROM playlists WHERE id = $1 RETURNING id',
+      text: 'DELETE FROM playlists WHERE id = $1 RETURNING owner',
       values: [id],
     };
 
@@ -97,6 +110,9 @@ class PlaylistsService {
     if (!result.rows.length) {
       throw new NotFoundError('Playlist gagal dihapus. Id tidak ditemukan');
     }
+
+    const { owner } = result.rows[0];
+    await this._cacheService.delete(`playlist:${owner}`);
   }
 
   async addSongsToPlaylist(playlistId, songId, userId) {
@@ -117,6 +133,7 @@ class PlaylistsService {
 
     const action = 'add';
     await this._activitiesService.addActivity(playlistId, songId, userId, action);
+    await this._cacheService.delete(`songs:${playlistId}`);
   }
 
   async getPlaylistWithSongs(playlistId) {
@@ -133,12 +150,16 @@ class PlaylistsService {
       throw new NotFoundError('playlist tidak ditemukkan');
     }
 
-    const songs = await this._songsService.getSongsByPlaylistId(playlistId);
-    // console.log(songs);
+    const { songs, isFromCache } = await this._songsService.getSongsByPlaylistId(playlistId);
 
-    return {
+    const playlist = {
       ...result.rows[0],
       songs,
+    };
+
+    return {
+      playlist,
+      isFromCache,
     };
   }
 
@@ -148,9 +169,7 @@ class PlaylistsService {
       text: 'DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2 RETURNING id',
       values: [playlistId, songId],
     };
-    // console.log('lala');
     const result = await this._pool.query(query);
-    // console.log(result);
 
     if (!result.rows.length) {
       throw new NotFoundError('lagu gagal dihapus dari playlist');
@@ -158,11 +177,11 @@ class PlaylistsService {
 
     const action = 'delete';
     await this._activitiesService.addActivity(playlistId, songId, userId, action);
+    await this._cacheService.delete(`songs:${playlistId}`);
   }
 
   async getPlaylistActivities(playlistId) {
-    const activities = this._activitiesService.getActivitiesByPlaylistId(playlistId);
-    return activities;
+    return this._activitiesService.getActivitiesByPlaylistId(playlistId);
   }
 }
 

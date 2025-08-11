@@ -5,9 +5,10 @@ const { nanoid } = require('nanoid');
 const autoBind = require('auto-bind');
 const InvariantError = require('../../exceptions/InvariantError');
 
-class ActivitiessService {
-  constructor() {
+class ActivitiesService {
+  constructor(cacheService) {
     this._pool = new Pool();
+    this._cacheService = cacheService;
 
     autoBind(this);
   }
@@ -25,25 +26,37 @@ class ActivitiessService {
     if (!result.rows[0].id) {
       throw new InvariantError('activities gagal ditambahkan');
     }
+
+    await this._cacheService.delete(`activity:${playlistId}`);
   }
 
   async getActivitiesByPlaylistId(playlistId) {
-    const query = {
-      text: `SELECT 
-        users.username,
-        songs.title,
-        playlist_song_activities.action,
-        playlist_song_activities.time
-        FROM playlist_song_activities
-        JOIN users ON playlist_song_activities.user_id = users.id
-        JOIN songs ON playlist_song_activities.song_id = songs.song_id
-        WHERE playlist_song_activities.playlist_id = $1 `,
-      values: [playlistId],
-    };
+    try {
+      const result = await this._cacheService.get(`activity:${playlistId}`);
+      const activities = JSON.parse(result);
+      return { activities, isFromCache: true };
+    } catch (error) {
+      const query = {
+        text: `SELECT 
+          users.username,
+          songs.title,
+          playlist_song_activities.action,
+          playlist_song_activities.time
+          FROM playlist_song_activities
+          JOIN users ON playlist_song_activities.user_id = users.id
+          JOIN songs ON playlist_song_activities.song_id = songs.song_id
+          WHERE playlist_song_activities.playlist_id = $1 `,
+        values: [playlistId],
+      };
 
-    const result = await this._pool.query(query);
-    return result.rows;
+      const result = await this._pool.query(query);
+      const activities = result.rows;
+
+      await this._cacheService.set(`activity:${playlistId}`, JSON.stringify(activities));
+
+      return { activities, isFromCache: false };
+    }
   }
 }
 
-module.exports = ActivitiessService;
+module.exports = ActivitiesService;

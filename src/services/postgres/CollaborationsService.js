@@ -4,30 +4,26 @@ const { Pool } = require('pg');
 const InvariantError = require('../../exceptions/InvariantError');
 
 class CollaborationsService {
-  constructor() {
+  constructor(cacheService) {
     this._pool = new Pool();
+    this._cacheService = cacheService;
   }
 
   async addCollaboration(playlistId, userId) {
     const id = `collab-${nanoid(16)}`;
-    console.log('tes-a');
 
     const query = {
       text: 'INSERT INTO collaborations VALUES($1, $2, $3) RETURNING id',
       values: [id, playlistId, userId],
     };
 
-    console.log(id);
-    console.log(playlistId);
-    console.log(userId);
-
     const result = await this._pool.query(query);
-    console.log('tes-b');
 
     if (!result.rows.length) {
       throw new InvariantError('Kolaborasi gagal ditambahkan');
     }
 
+    await this._cacheService.delete(`playlist:${userId}`);
     return result.rows[0].id;
   }
 
@@ -42,6 +38,7 @@ class CollaborationsService {
     if (!result.rows.length) {
       throw new InvariantError('Kolaborasi gagal dihapus');
     }
+    await this._cacheService.delete(`playlist:${userId}`);
   }
 
   async verifyCollaborator(playlistId, userId) {

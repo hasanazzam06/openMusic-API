@@ -76,6 +76,36 @@ class AlbumsService {
       throw new NotFoundError('Catatan gagal dihapus. Id tidak ditemukan');
     }
   }
+
+  async addCoverUrl(id, filename) {
+    const fileLocation = `http://${process.env.HOST}:${process.env.PORT}/covers/images/${filename}`;
+
+    const query = {
+      text: 'UPDATE albums SET cover_url = $1 WHERE album_id = $2 RETURNING album_id',
+      values: [fileLocation, id],
+    };
+
+    const result = await this._pool.query(query);
+
+    if (!result.rows[0].album_id) {
+      throw new InvariantError('cover album gagal ditambahkan');
+    }
+
+    // return fileLocation;
+  }
+
+  async verifyAlbumId(id) {
+    const query = {
+      text: 'SELECT album_id FROM albums WHERE album_id = $1',
+      values: [id],
+    };
+
+    const result = await this._pool.query(query);
+
+    if (!result.rows.length) {
+      throw new NotFoundError('AlbumId tidak ditemukan');
+    }
+  }
 }
 
 module.exports = AlbumsService;

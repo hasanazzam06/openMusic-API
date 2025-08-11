@@ -7,8 +7,9 @@ const InvariantError = require('../../exceptions/InvariantError');
 const NotFoundError = require('../../exceptions/NotFoundError');
 
 class SongsService {
-  constructor() {
+  constructor(cacheService) {
     this._pool = new Pool();
+    this._cacheService = cacheService;
   }
 
   async addSong({ title, year, genre, performer, duration, albumId }) {
@@ -122,17 +123,26 @@ class SongsService {
   }
 
   async getSongsByPlaylistId(playlistId) {
-    const query = {
-      text: `
-      SELECT songs.song_id, songs.title, songs.performer
-      FROM playlist_songs
-      JOIN songs ON songs.song_id = playlist_songs.song_id
-      WHERE playlist_songs.playlist_id = $1`,
-      values: [playlistId],
-    };
+    try {
+      const result = await this._cacheService.get(`songs:${playlistId}`);
+      const songs = JSON.parse(result);
+      return { songs, isFromCache: true };
+    } catch (error) {
+      const query = {
+        text: `
+          SELECT songs.song_id, songs.title, songs.performer
+          FROM playlist_songs
+          JOIN songs ON songs.song_id = playlist_songs.song_id
+          WHERE playlist_songs.playlist_id = $1`,
+        values: [playlistId],
+      };
 
-    const result = await this._pool.query(query);
-    return result.rows.map(mapDBToModelSong);
+      const result = await this._pool.query(query);
+      const songs = result.rows.map(mapDBToModelSong);
+
+      await this._cacheService.set(`songs:${playlistId}`, JSON.stringify(songs));
+      return { songs, isFromCache: false };
+    }
   }
 }
 
